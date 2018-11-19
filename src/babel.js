@@ -1,7 +1,9 @@
+import nodePath from 'path';
+
 export default function({ types: t, template }) {
   return {
     visitor: {
-      ImportDeclaration(path) {
+      ImportDeclaration(path, state) {
         let source = path.node.source.value;
         if (source !== 'react-loadable') return;
 
@@ -51,10 +53,17 @@ export default function({ types: t, template }) {
           loaderMethod.traverse({
             Import(path) {
               dynamicImports.push(path.parentPath);
-            }
+            },
           });
 
           if (!dynamicImports.length) return;
+
+          const resolveCompleteNode = node =>
+            node.value && node.value[0] === '.'
+              ? t.stringLiteral(
+                  nodePath.resolve(nodePath.dirname(state.file.opts.filename), node.value),
+                )
+              : node;
 
           propertiesMap.loader.insertAfter(
             t.objectProperty(
@@ -64,16 +73,13 @@ export default function({ types: t, template }) {
                 t.arrayExpression(
                   dynamicImports.map(dynamicImport => {
                     return t.callExpression(
-                      t.memberExpression(
-                      	t.identifier('require'),
-                        t.identifier('resolveWeak'),
-                      ),
-                      [dynamicImport.get('arguments')[0].node],
-                    )
-                  })
-                )
-              )
-            )
+                      t.memberExpression(t.identifier('require'), t.identifier('resolveWeak')),
+                      [resolveCompleteNode(dynamicImport.get('arguments')[0].node)],
+                    );
+                  }),
+                ),
+              ),
+            ),
           );
 
           propertiesMap.loader.insertAfter(
@@ -81,13 +87,13 @@ export default function({ types: t, template }) {
               t.identifier('modules'),
               t.arrayExpression(
                 dynamicImports.map(dynamicImport => {
-                  return dynamicImport.get('arguments')[0].node;
-                })
-              )
-            )
+                  return resolveCompleteNode(dynamicImport.get('arguments')[0].node);
+                }),
+              ),
+            ),
           );
         });
-      }
-    }
+      },
+    },
   };
 }
